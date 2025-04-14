@@ -1,4 +1,3 @@
-# src/api_test.py
 import os
 import logging
 from dotenv import load_dotenv
