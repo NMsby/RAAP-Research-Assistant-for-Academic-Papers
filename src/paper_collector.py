@@ -1,5 +1,6 @@
 import os
 import urllib.request
+import urllib.parse
 import time
 from typing import List, Dict, Any
 import logging
@@ -26,7 +27,10 @@ def clean_filename(title: str) -> str:
 def fetch_arxiv_papers(query: str, max_results: int = 10) -> List[Dict[str, Any]]:
     """Fetch paper metadata from arXiv API based on the query."""
     base_url = 'http://export.arxiv.org/api/query?'
-    search_query = f'search_query=all:{query}&sortBy=submittedDate&sortOrder=descending&max_results={max_results}'
+
+    # URL encode the query to handle spaces and special characters
+    encoded_query = urllib.parse.quote(query)
+    search_query = f'search_query=all:{encoded_query}&sortBy=submittedDate&sortOrder=descending&max_results={max_results}'
 
     logger.info(f"Fetching papers with query: {query}, max results: {max_results}")
     with urllib.request.urlopen(base_url + search_query) as response:
@@ -79,6 +83,10 @@ def download_papers(papers: List[Dict[str, Any]], output_dir: str) -> None:
 
     for i, paper in enumerate(papers):
         if 'pdf_url' not in paper:
+            # Try to construct the PDF URL from the arxiv ID
+            arxiv_id = paper['id'].split('/')[-1]
+            paper['pdf_url'] = f'http://arxiv.org/pdf/{arxiv_id}.pdf'
+            logger.info(f"Constructed PDF URL: {paper['pdf_url']}")
             logger.warning(f"No PDF URL found for paper: {paper['title']}")
             continue
 
@@ -109,6 +117,25 @@ def download_papers(papers: List[Dict[str, Any]], output_dir: str) -> None:
             logger.error(f"Failed to download {pdf_url}: {str(e)}")
 
 
+def print_download_instructions(papers: List[Dict[str, Any]]) -> None:
+    """Print manual download instructions for papers."""
+    print("\nManual Download Instructions:")
+    print("-------------------------------")
+    print("If automatic download fails, use these links to download manually:")
+
+    for i, paper in enumerate(papers):
+        title = paper['title']
+        if 'pdf_url' in paper:
+            url = paper['pdf_url']
+        else:
+            arxiv_id = paper['id'].split('/')[-1]
+            url = "http://arxiv.org/pdf/{arxiv_id}.pdf"
+
+        print(f"{i + 1}) {title}")
+        print(f"    URL: {url}")
+        print()
+
+
 def main():
     parser = argparse.ArgumentParser(description='Download papers from arXiv')
     parser.add_argument('--query', type=str, default='retrieval augmented generation',
@@ -121,7 +148,12 @@ def main():
     args = parser.parse_args()
 
     papers = fetch_arxiv_papers(args.query, args.max_results)
+
+    # Try to download papers
     download_papers(papers, args.output_dir)
+
+    # Also print manual instructions in case automatic download fails
+    print_download_instructions(papers)
 
     # Save the collection metadata
     collection_metadata = {
