@@ -1,5 +1,7 @@
 import os
 import re
+import sys
+import gc
 import logging
 from typing import List, Dict, Any, Tuple, Optional
 import pdfplumber
@@ -211,13 +213,15 @@ class DocumentProcessor:
 
     def chunk_document(self, sections: List[Dict[str, Any]],
                        max_chunk_size: int = 1000,
-                       overlap: int = 200) -> List[Dict[str, Any]]:
+                       overlap: int = 200,
+                       max_section_size: int = 100000) -> List[Dict[str, Any]]:
         """Split document sections into chunks of the appropriate size.
 
         Args:
             sections: Document sections
             max_chunk_size: Maximum size of a chunk in characters
             overlap: Overlap between chunks in characters
+            max_section_size: Maximum size of a section to process (to prevent memory errors)
 
         Returns:
             List of chunk dictionaries
@@ -228,7 +232,12 @@ class DocumentProcessor:
             section_title = section["title"]
             section_text = section["text"]
 
-            # If a section is smaller than max_chunk_size, keep it as one chunk
+            # Safety check - truncate extremely large sections
+            if len(section_text) > max_section_size:
+                logger.warning(f"Section '{section_title}' is too large ({len(section_text)} chars). Truncating to {max_section_size} chars.")
+                section_text = section_text[:max_section_size]
+
+            # If the section is smaller than max_chunk_size, keep it as one chunk
             if len(section_text) <= max_chunk_size:
                 chunks.append({
                     "section": section_title,
@@ -239,15 +248,18 @@ class DocumentProcessor:
             # Otherwise, split into overlapping chunks
             start = 0
             while start < len(section_text):
+                # Force garbage collection to help with memory
+                gc.collect()
+
                 # Calculate end position
                 end = min(start + max_chunk_size, len(section_text))
 
                 # If this is not the last chunk, try to break at a sentence or paragraph
                 if end < len(section_text):
                     # Look for the last period, newline, or space in the overlap region
-                    last_period = section_text.rfind(".", end - 150, end)
-                    last_newline = section_text.rfind("\n", end - 150, end)
-                    last_space = section_text.rfind(" ", end - 20, end)
+                    last_period = section_text.rfind(".", end - min(150, end - start), end)
+                    last_newline = section_text.rfind("\n", end - min(150, end - start), end)
+                    last_space = section_text.rfind(" ", end - min(20, end - start), end)
 
                     # Choose the latest breakpoint that exists
                     breakpoint = max(last_period, last_newline, last_space)
@@ -279,36 +291,46 @@ class DocumentProcessor:
         Returns:
             Dictionary with document data and chunks
         """
-        # Extract text from PDF
-        pages = self.extract_text_from_pdf(file_path)
-        if not pages:
-            logger.error(f"Failed to extract text from {file_path}")
-            return {"success": False, "file_path": file_path}
+        try:
+            # Extract text from PDF
+            pages = self.extract_text_from_pdf(file_path)
+            if not pages:
+                logger.error(f"Failed to extract text from {file_path}")
+                return {"success": False, "file_path": file_path}
 
-        # Extract metadata
-        metadata = self.extract_metadata(file_path, pages)
+            # Extract metadata
+            metadata = self.extract_metadata(file_path, pages)
 
-        # Identify document structure
-        document_structure = self.identify_document_structure(pages)
+            # Identify document structure
+            document_structure = self.identify_document_structure(pages)
 
-        # Create chunks
-        chunks = self.chunk_document(document_structure["sections"], max_chunk_size, overlap)
+            # Force garbage collection before chunking
+            gc.collect()
 
-        # Combine into a processed document
-        processed_document = {
-            "metadata": metadata,
-            "chunks": chunks,
-            "success": True
-        }
+            # Create chunks
+            chunks = self.chunk_document(document_structure["sections"], max_chunk_size, overlap)
 
-        # Save processed document
-        if metadata.get("title"):
-            safe_title = re.sub(r'[^a-zA-Z0-9]', '_', metadata["title"])[:100]
-            output_path = os.path.join(self.output_dir, f"{safe_title}.json")
-            save_json(processed_document, output_path)
-            logger.info(f"Saved processed document to {output_path}")
+            # Combine into a processed document
+            processed_document = {
+                "metadata": metadata,
+                "chunks": chunks,
+                "success": True
+            }
 
-        return processed_document
+            # Save processed document
+            if metadata.get("title"):
+                safe_title = re.sub(r'[^a-zA-Z0-9]', '_', metadata["title"])[:100]
+                output_path = os.path.join(self.output_dir, f"{safe_title}.json")
+                save_json(processed_document, output_path)
+                logger.info(f"Saved processed document to {output_path}")
+
+            return processed_document
+        except MemoryError:
+            logger.error(f"Memory error processing document: {file_path}")
+            return {"success": False, "file_path": file_path, "error": "Memory error"}
+        except Exception as e:
+            logger.error(f"Error processing document: {file_path}, Error: {str(e)}")
+            return {"success": False, "file_path": file_path, "error": str(e)}
 
     def process_all_documents(self, max_chunk_size: int = 1000, overlap: int = 200) -> List[Dict[str, Any]]:
         """Process all PDF documents in the input directory.
@@ -329,9 +351,20 @@ class DocumentProcessor:
         logger.info(f"Found {len(pdf_files)} PDF files to process")
 
         for pdf_file in tqdm(pdf_files, desc="Processing documents"):
-            file_path = os.path.join(self.input_dir, pdf_file)
-            processed_document = self.process_document(file_path, max_chunk_size, overlap)
-            processed_documents.append(processed_document)
+            try:
+                file_path = os.path.join(self.input_dir, pdf_file)
+                processed_document = self.process_document(file_path, max_chunk_size, overlap)
+                processed_documents.append(processed_document)
+
+                # Force garbage collection between documents
+                gc.collect()
+            except Exception as e:
+                logger.error(f"Failed to process {pdf_file}: {str(e)}")
+                processed_documents.append({
+                    "success": False,
+                    "file_path": os.path.join(self.input_dir, pdf_file),
+                    "error": str(e)
+                })
 
         # Create a summary file
         summary = {
