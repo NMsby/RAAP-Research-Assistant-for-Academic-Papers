@@ -1,5 +1,6 @@
 import os
 import logging
+import re
 import time
 from typing import List, Dict, Any, Optional, Union
 from tqdm.auto import tqdm
@@ -167,7 +168,10 @@ class EmbeddingService:
             if not title:
                 title = os.path.splitext(os.path.basename(document_path))[0]
 
-            output_name = f"{title.replace(' ', '_')[:100]}_embeddings.json"
+            # Clean the title to make a valid filename
+            # Replace any characters that might cause issues in filenames
+            clean_title = re.sub(r'[\\/*?:"<>|\n\r\t]', '_', title)
+            output_name = f"{clean_title.replace(' ', '_')[:100]}_embeddings.json"
 
         output_path = os.path.join(self.embeddings_dir, output_name)
         save_json(result, output_path)
