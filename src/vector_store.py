@@ -1,4 +1,3 @@
-# src/vector_store.py
 import os
 import logging
 import time
@@ -41,8 +40,9 @@ class VectorStore:
         try:
             self.collection = self.client.get_collection(name=collection_name)
             logger.info(f"Loaded existing collection: {collection_name}")
-        except ValueError:
+        except Exception as e:
             # Collection doesn't exist, create it
+            logger.info(f"Collection {collection_name} not found, creating new collection")
             self.collection = self.client.create_collection(name=collection_name)
             logger.info(f"Created new collection: {collection_name}")
 
