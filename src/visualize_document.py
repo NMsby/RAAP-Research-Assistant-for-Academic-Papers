@@ -1,4 +1,3 @@
-# src/visualize_document.py
 import os
 import argparse
 import json
