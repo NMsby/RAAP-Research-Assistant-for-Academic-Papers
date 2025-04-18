@@ -22,6 +22,8 @@ build/
 # Data files
 /data/raw/
 /data/processed/
+/data/embeddings/
+/data/vector_db/
 
 # IDE specific files
 .idea/
