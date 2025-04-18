@@ -32,11 +32,15 @@ def process_embeddings():
 def setup_vector_store():
     """Set up vector store with embeddings."""
     logger.info("Setting up vector store...")
-    vector_store = VectorStore()
-    vector_store.add_all_from_directory()
-    stats = vector_store.get_collection_stats()
-    logger.info(f"Vector store stats: {stats}")
-    return stats.get("total_chunks", 0) > 0
+    try:
+        vector_store = VectorStore()
+        vector_store.add_all_from_directory()
+        stats = vector_store.get_collection_stats()
+        logger.info(f"Vector store stats: {stats}")
+        return stats.get("total_chunks", 0) > 0
+    except Exception as e:
+        logger.error(f"Error setting up vector store: {str(e)}")
+        return False
 
 
 def test_questions(engine):
