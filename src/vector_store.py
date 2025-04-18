@@ -97,19 +97,29 @@ class VectorStore:
 
                 # Extract text and metadata
                 text = chunk.get("text", "")
-                chunk_metadata = {
+
+                # Process metadata - covert lists to strings
+                processed_metadata = {
                     "document_id": doc_id,
                     "document_title": title,
                     "section": chunk.get("section", ""),
-                    "page": chunk.get("page", 0),
-                    **{k: v for k, v in metadata.items() if k not in ["id", "title"]}
+                    "page": chunk.get("page", 0)
                 }
+
+                # Add other metadata, converting lists to strings where needed
+                for k, v in metadata.items():
+                    if k not in ["id", "title"]:
+                        # Convert lists to strings to satisfy ChromaDB requirements
+                        if isinstance(v, list):
+                            processed_metadata[k] = ", ".join(v)
+                        else:
+                            processed_metadata[k] = v
 
                 # Add to batch
                 ids.append(chunk_id)
                 embeddings.append(embedding)
                 documents.append(text)
-                metadatas.append(chunk_metadata)
+                metadatas.append(processed_metadata)
 
             # Add batch to the collection
             if ids:
